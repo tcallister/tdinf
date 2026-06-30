@@ -27,6 +27,8 @@ def get_parser():
     p.add_argument("--submit", action="store_true", help="Submit the DAG to Condor")
     p.add_argument("--run_in_place", action="store_true",
                         help="Skip condor file transfer and bank on a shared file system")
+    p.add_argument("--mem", type=str, default=None,
+                        help="Memory per job, overrides request_memory in condor settings (e.g. '16GB')")
     return p
 
 def get_option_from_list(option_name: str, option_list: list[Option]):
@@ -213,7 +215,8 @@ class AbstractPipelineDAG(abc.ABC):
 class RunSamplerDag(AbstractPipelineDAG):
     cycle_list: List[float]
     times_list: List[float]
-    modes : List[str]
+    modes: List[str]
+    mem: str = None
 
     @staticmethod
     def _copy_file_to_directory_and_return_new_name_(file, target_directory, relative_path=None):
@@ -283,7 +286,8 @@ class RunSamplerDag(AbstractPipelineDAG):
                                                         self.executables['run_sampler'],
                                                         self.condor_settings,
                                                         transfer_files=self.transfer_files,
-                                                        additional_options=data_options)
+                                                        additional_options=data_options,
+                                                        mem_override=self.mem)
         def get_modes(val):
             if 'full' in self.modes and val==0: 
                 return self.modes
@@ -377,6 +381,8 @@ class AbstractLayerManager(abc.ABC):
 
 @dataclass
 class RunSamplerLayerManager(AbstractLayerManager):
+    mem_override: str = None
+
     @property
     def method_name(self) -> str:
         return "run_sampler"
@@ -385,7 +391,7 @@ class RunSamplerLayerManager(AbstractLayerManager):
     def condor_settings(self):
         condor_settings = self.shared_condor_settings
         additional_settings = {
-            "request_memory": "14GB",
+            "request_memory": self.mem_override if self.mem_override is not None else "14GB",
             "request_disk": "5000MB",
             "request_cpus": self.argument_parser.get_default('ncpu'),
         }
@@ -486,7 +492,8 @@ def main(args=None):
     pipeline_dag = RunSamplerDag(args.output_directory, args.config_file, args.submit,
                                  transfer_files=not args.run_in_place,
                                  cycle_list=cutoff_cycles, times_list=cutoff_times,
-                                 modes=args.modes)
+                                 modes=args.modes,
+                                 mem=args.mem)
 
     pipeline_dag.create_pipeline_dag()
 
